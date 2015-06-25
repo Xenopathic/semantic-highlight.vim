@@ -100,39 +100,26 @@ function! s:semHighlight()
 		call s:buildColors()
 	endif
 
-	let b:cache_defined = {}
-
-	let buflen = line('$')
-	let pattern = '\<[\$]*[a-zA-Z\_][a-zA-Z0-9\_]*\>'
 	let cur_color = 0
-	let colorLen = len(s:semanticColors)
+	let color_len = len(s:semanticColors)
 
-	while buflen
-		let curline = getline(buflen)
-		let index = 0
-		while 1
-			let match = matchstr(curline, pattern, index)
+	let filetype = xolox#easytags#filetypes#canonicalize(&filetype)
+	let ctags_filetypes = xolox#easytags#filetypes#find_ctags_aliases(filetype)
+	let filetypes_pattern = printf('^\(%s\)$', join(map(ctags_filetypes, 'xolox#misc#escape#pattern(v:val)'), '\|'))
+	let taglist = filter(taglist('.'), "get(v:val, 'language', '') =~? filetypes_pattern")
 
-			if (empty(match))
-				break
-			endif
-
-			let l:no_blacklist_exists_for_filetype = empty(s:blacklist) || !has_key(s:blacklist, &filetype)
-			if ((l:no_blacklist_exists_for_filetype || index(s:blacklist[&filetype], match) == -1) && !has_key(b:cache_defined, match))
-				let b:cache_defined[match] = 1
-				let l:containedin = ''
-				if (!empty(s:containedinlist) && has_key(s:containedinlist, &filetype))
-					let l:containedin = ' containedin=' . s:containedinlist[&filetype]
+	let tagkinds = get(s:tagkinds, filetype, [])
+	if !empty(tagkinds)
+		let matches = filter(copy(taglist), 'v:val.kind =~ tagkinds')
+		if matches != []
+			for tag in matches
+				if s:is_keyword_compatible(tag)
+					execute 'syntax keyword _semantic' . s:getCachedColor(cur_color, tag.name) . ' ' . tag.name
+					let cur_color = (cur_color + 1) % color_len
 				endif
-
-				execute 'syn keyword _semantic' . s:getCachedColor(cur_color, match) . l:containedin . ' ' . match
-				let cur_color = (cur_color + 1) % colorLen
-			endif
-
-			let index += len(match) + 1
-		endwhile
-		let buflen -= 1
-	endwhile
+			endfor
+		endif
+	endif
 endfunction
 
 function! s:buildColors()
@@ -182,4 +169,42 @@ function! s:toggleHighlight()
 		let b:semanticOn = 1
 	endif
 endfunction
+
+function! s:define_tagkind(filetype, tagkinds)
+	let s:tagkinds[a:filetype] = a:tagkinds
+endfunction
+
+" Function taken from xolox/vim-easytags
+function! s:is_keyword_compatible(tag)
+	let name = get(a:tag, 'name', '')
+	if !empty(name)
+		if name =~ '^\k\+$' && len(name) <= 80
+			return !has_key(s:invalid_keywords, name)
+		endif
+	endif
+	return 0
+endfunction
+
+" Documented under :help E395
+let s:invalid_keywords = {
+	\ 'cchar': 1,
+	\ 'conceal': 1,
+	\ 'contained': 1,
+	\ 'containedin': 1,
+	\ 'contains': 1,
+	\ 'nextgroup': 1,
+	\ 'skipempty': 1,
+	\ 'skipnl': 1,
+	\ 'skipwhite': 1,
+	\ 'transparent': 1,
+	\ }
+
+let s:tagkinds = {}
+
+" Tagkind definitions
+
+call s:define_tagkind('cpp', '[vm]')
+call s:define_tagkind('javascript', '[pv]')
+call s:define_tagkind('php', '[v]')
+call s:define_tagkind('python', '[mv]')
 
